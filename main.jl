@@ -9,6 +9,14 @@ Echo State Network with Lorenz system dynamics in the reservoir.
 
 The reservoir states evolve according to modified Lorenz equations,
 providing rich chaotic dynamics for temporal pattern learning.
+
+parameters:
+- input_size: Dimension of input vector
+- reservoir_size: Total number of reservoir neurons (should be multiple of 3)
+- output_size: Dimension of output vector
+- leaking_rate: Rate at which reservoir state updates
+- lorenz_coupling: Coupling strength between Lorenz systems in the reservoir
+- σ, ρ, β: Standard Lorenz system parameters
 """
 mutable struct LorenzESN
 	input_size::Int
@@ -40,7 +48,7 @@ mutable struct LorenzESN
 		input_scaling::Float64 = 1.0,
 		leaking_rate::Float64 = 1.0,
 		lorenz_coupling::Float64 = 0.1,
-		σ::Float64 = 10.0,
+		σ::Float64 = 11.0,
 		ρ::Float64 = 28.0,
 		β::Float64 = 8.0 / 3.0)
 
