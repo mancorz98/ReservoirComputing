@@ -117,6 +117,7 @@ function lorenz_dynamics(esn::LorenzESN, state::Vector{Float64}, dt::Float64 = 0
 	return new_state
 end
 
+
 """Forward pass through the ESN"""
 function forward(esn::LorenzESN, input_sequence::Array{Float64})
 	if ndims(input_sequence) == 2
@@ -135,17 +136,25 @@ function forward(esn::LorenzESN, input_sequence::Array{Float64})
 		current_input = input_sequence[t, :, :]  # (batch_size, input_size)
 
 		for b in 1:batch_size
-			# Apply Lorenz dynamics
-			reservoir_states[b, :] = lorenz_dynamics(esn, reservoir_states[b, :])
+			# Apply Lorenz dynamics to evolve the previous state
+			lorenz_evolved_state = lorenz_dynamics(esn, reservoir_states[b, :])
 
-			# Add input and reservoir coupling
-			input_contribution = esn.W_in * current_input[b, :]
-			reservoir_contribution = esn.W_res * reservoir_states[b, :]
+			# Standard ESN update following the article's equation:
+			# ht = f((1 - k) * ut * Win + k * ht-1 * Wh + b)
+			# where f() is tanh, k is leak rate
 
-			# Leaky integration with tanh activation
-			new_state = (1 - esn.leaking_rate) * reservoir_states[b, :] +
-						esn.leaking_rate * tanh.(input_contribution +
-												 esn.lorenz_coupling * reservoir_contribution)
+			# Input contribution: ut * Win (note: input from left)
+			input_contribution = (current_input[b, :]' * esn.W_in')'
+
+			# Reservoir contribution: ht-1 * Wh (using Lorenz-evolved state)  
+			reservoir_contribution = (lorenz_evolved_state' * esn.W_res')'
+
+			# Apply correct leaking rate formulation from the article
+			linear_combination = (1 - esn.leaking_rate) * input_contribution +
+								 esn.leaking_rate * reservoir_contribution
+
+			# Apply activation function to the entire linear combination
+			new_state = tanh.(linear_combination)
 
 			reservoir_states[b, :] = new_state
 		end
@@ -167,6 +176,7 @@ function forward(esn::LorenzESN, input_sequence::Array{Float64})
 		return outputs, all_states
 	end
 end
+
 
 """Reset reservoir state"""
 function reset_state!(esn::LorenzESN)
@@ -215,17 +225,19 @@ function train_esn!(esn::LorenzESN, X_train::Array{Float64, 3}, y_train::Array{F
 		for t in 1:size(X_train, 2)
 			current_input = X_train[i, t, :]
 
-			# Apply Lorenz dynamics
-			esn.reservoir_state = lorenz_dynamics(esn, esn.reservoir_state)
+			# Apply Lorenz dynamics to evolve the previous state
+			lorenz_evolved_state = lorenz_dynamics(esn, esn.reservoir_state)
 
-			# Add input and reservoir coupling  
-			input_contribution = esn.W_in * current_input
-			reservoir_contribution = esn.W_res * esn.reservoir_state
+			# Standard ESN update following the article's equation
+			input_contribution = (current_input' * esn.W_in')'
+			reservoir_contribution = (lorenz_evolved_state' * esn.W_res')'
 
-			# Leaky integration
-			new_state = (1 - esn.leaking_rate) * esn.reservoir_state +
-						esn.leaking_rate * tanh.(input_contribution +
-												 esn.lorenz_coupling * reservoir_contribution)
+			# Apply correct leaking rate formulation
+			linear_combination = (1 - esn.leaking_rate) * input_contribution +
+								 esn.leaking_rate * reservoir_contribution
+
+			# Apply activation function to the entire linear combination
+			new_state = tanh.(linear_combination)
 
 			esn.reservoir_state = new_state
 			reservoir_states[t, :] = esn.reservoir_state
@@ -276,11 +288,11 @@ function train_esn_example()
 	y_train, y_test = y[1:train_size, :, :], y[(train_size+1):end, :, :]
 
 	# Create ESN
-	esn = LorenzESN(3, 300,  # 100 Lorenz systems  
+	esn = LorenzESN(3, 600,  # 100 Lorenz systems  
 		3;
 		spectral_radius = 0.95,
 		input_scaling = 1.0,
-		leaking_rate = 0.1,
+		leaking_rate = 0.2,
 		lorenz_coupling = 0.05)
 
 	# Train the model
