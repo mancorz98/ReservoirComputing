@@ -270,10 +270,12 @@ end
 function train_esn_example()
 	# Generate synthetic data (predicting next step of Lorenz system)
 	println("Generating Lorenz data...")
-	data = generate_lorenz_data(2000, 0.01)
+
+
+	data = generate_lorenz_data(4000, 0.01)
 
 	# Prepare sequences
-	seq_length = 100
+	seq_length = 2000
 	X = Array{Float64}(undef, size(data, 1) - seq_length, seq_length, 3)
 	y = Array{Float64}(undef, size(data, 1) - seq_length, seq_length, 3)
 
