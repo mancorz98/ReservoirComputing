@@ -1,5 +1,4 @@
 using CairoMakie
-
 using Waveforms
 
 
@@ -57,11 +56,6 @@ current_figure()
 
 
 
-
-
-
-
-
 signal = @. squarewave(2π * 1e4 * t)
 
 fig = Figure(resolution = (800, 400))
@@ -75,10 +69,17 @@ current_figure() |> display
 using MLDatasets
 using Images
 using CairoMakie
-
+using Random
 
 train_x, train_y = MNIST(split = :train)[:]
 test_x, test_y = MNIST(split = :test)[:]
+train_indices = randperm(size(train_x, 3))[1:1000]
+test_indices = randperm(size(test_x, 3))[1:200]
+train_x = train_x[:, :, train_indices]
+train_y = train_y[train_indices]
+test_x = test_x[:, :, test_indices]
+test_y = test_y[test_indices]
+
 size(train_x), size(test_x)
 
 image_data = Gray.(reshape(train_x[:, :, 3], 28, 28)')
@@ -302,48 +303,15 @@ end
 extract_patches(train_x[:, :, 1]', (5, 5), 3) |> length
 
 
-x_vals = Array{Float32}(undef, train_x |> size |> first, size(train_x, 3))
-@showprogress 1 "ComputingImageData" for j in 1:size(train_x, 3)
-	image_data = train_x[:, :, j]'
-	# image_data = train_x[:, :, 2]'
-	label = train_y[j]  # The label for this image
-	Gray.(image_data)
 
-	for i in 1:size(image_data, 1)
-		(times, signal) = generate_carrier_wave(1e-4, image_data[i, :] .* 1; duty_cycle = 0.8, fs = 1e7)
-		V_in_f = t -> interp1(times, signal, t, left = 0.0, right = 0.0)
-
-		V_in_f = AkimaInterpolation(signal, times; extrapolation = ExtrapolationType.Extension)
-		p = (memristors[i], V_in_f)
-		prob = ODEProblem(MMS_prime!, [0.00], (0.0, maximum(times)), p)
-		sol = solve(prob, Tsit5(); saveat = [times[end]],
-			maxiters = Int(1e4))
-		x_vals[i, j] = sol[end][1]
-
-		# fig = Figure(size = (800, 400))
-		# ax = Axis(fig[1, 1], xlabel = "Time (s)", ylabel = "Memristor State X", title = "Memristor State Evolution for Row $i of Image $label")
-		# lines!(ax, sol, color = :blue)
-		# ylims!(ax, 0, 1)
-
-		# ax2 = Axis(fig[1, 2], xlabel = "Time (s)", ylabel = "Input Voltage (V)", title = "Input Voltage Signal for Row $i of Image $label")
-		# lines!(ax2, times, signal, color = :red)
-		# current_figure() |> display
-		# x_vals[i] = sol[end][1]
-		# sleep(0.1)
-	end
-end
-
-
-
-
-x_vals = Array{Float32}(undef, train_x |> size |> first, size(train_x, 3))
-
-kernel_size = 5
+kernel_size = 6
 stride = 3
-n_patches_h = div(28 - kernel_size, stride) + 1  # = 8
-n_patches_w = div(28 - kernel_size, stride) + 1  # = 8
+n_patches_h = div(size(train_x, 1) - kernel_size, stride) + 1  # = 8
+n_patches_w = div(size(train_x, 2) - kernel_size, stride) + 1  # = 8
 n_patches = n_patches_h * n_patches_w  # = 64
 x_vals = Array{Float32}(undef, n_patches + 1, size(train_x, 3))
+
+test_vals = Array{Float32}(undef, n_patches + 1, size(test_x, 3))
 
 @showprogress 1 "ComputingImageData" for j in 1:size(train_x, 3)
 	image_data = train_x[:, :, j]'
@@ -354,7 +322,7 @@ x_vals = Array{Float32}(undef, n_patches + 1, size(train_x, 3))
 	Gray.(image_data)
 
 	for (i, patch) in enumerate(patches)
-		(times, signal) = generate_carrier_wave(1e-5, patch .* 1; duty_cycle = 0.8, fs = 1e7)
+		(times, signal) = generate_carrier_wave(1e-5, patch .* 1.5; duty_cycle = 0.8, fs = 1e7)
 		V_in_f = t -> interp1(times, signal, t, left = 0.0, right = 0.0)
 
 		V_in_f = AkimaInterpolation(signal, times; extrapolation = ExtrapolationType.Extension)
@@ -373,10 +341,50 @@ x_vals = Array{Float32}(undef, n_patches + 1, size(train_x, 3))
 		# lines!(ax2, times, signal, color = :red)
 		# current_figure() |> display
 		# x_vals[i] = sol[end][1]
-		# sleep(0.1)
+		# sleep(0.5)
+
 	end
 	# Add bias term
 	x_vals[end, j] = 1.0
+end
+
+
+
+
+
+
+@showprogress 1 "ComputingImageData" for j in 1:size(test_x, 3)
+	image_data = test_x[:, :, j]'
+	patches = extract_patches(image_data, (5, 5), 3)
+
+	# image_data = train_x[:, :, 2]'
+	label = test_y[j]  # The label for this image
+	Gray.(image_data)
+
+	for (i, patch) in enumerate(patches)
+		(times, signal) = generate_carrier_wave(1e-5, patch .* 1.5; duty_cycle = 0.8, fs = 1e7)
+		V_in_f = t -> interp1(times, signal, t, left = 0.0, right = 0.0)
+
+		V_in_f = AkimaInterpolation(signal, times; extrapolation = ExtrapolationType.Extension)
+		p = (memristors[i%length(memristors)+1], V_in_f)
+		prob = ODEProblem(MMS_prime!, [0.00], (0.0, maximum(times)), p)
+		sol = solve(prob, Tsit5(); saveat = times,
+			maxiters = Int(1e4))
+		test_vals[i, j] = sol[end][1]
+
+		# fig = Figure(size = (800, 400))
+		# ax = Axis(fig[1, 1], xlabel = "Time (s)", ylabel = "Memristor State X", title = "Memristor State Evolution for Row $i of Image $label")
+		# lines!(ax, sol, color = :blue)
+		# ylims!(ax, 0, 1)
+
+		# ax2 = Axis(fig[1, 2], xlabel = "Time (s)", ylabel = "Input Voltage (V)", title = "Input Voltage Signal for Row $i of Image $label")
+		# lines!(ax2, times, signal, color = :red)
+		# current_figure() |> display
+		# x_vals[i] = sol[end][1]
+		# sleep(0.1)
+	end
+	# Add bias term
+	test_vals[end, j] = 1.0
 end
 
 
@@ -451,16 +459,20 @@ end
 
 
 W_out = qr_ridge_regression(H, Y, 0.00001)
-W_out = efficient_ridge_regression(H, Y, 0.0)
+W_out = efficient_ridge_regression(H, Y, 0.01)
 y_pred = H * W_out
 y_pred_labels = map(i -> findmax(y_pred[i, :])[2] - 1, 1:size(y_pred, 1))
 
 accuracy = sum(y_pred_labels .== train_y) / length(train_y)
 
 
+y_test_pred = test_vals' * W_out
+y_test_pred_labels = map(i -> findmax(y_test_pred[i, :])[2] - 1, 1:size(y_test_pred, 1))
+
+test_accuracy = sum(y_test_pred_labels .== test_y) / length(test_y)
+
 println("Training Accuracy: ", accuracy * 100, "%")
-
-
+println("Test Accuracy: ", test_accuracy * 100, "%")
 
 unpred_ids = findall(y_pred_labels .!= train_y)
 
@@ -477,47 +489,19 @@ CairoMakie.image!(ax1, image_data', interpolate = false, colormap = :deep)
 current_figure() |> display
 
 
-
-
-
-
-
-
-
-
-
 image(image_data, colormap = :deep) |> display
-
-
-
-
-
-
-
-
-
-
-
-
-
 times
 lines(times, signal, color = :blue) |> display
-
 lines(generate_carrier_wave(0.1, 5)...)
 
 using Statistics
 times[2:end] - times[1:end-1] |> mean
-
 
 fig = Figure(; size = (800, 400))
 ax = Axis(fig[1, 1], xlabel = "Sample Index", ylabel = "Amplitude", title = "Generated Carrier Wave with Pulses")
 lines!(ax, generate_carrier_wave(0.1, 5, 1.0; fs = 1000, amplitude = 1.0, offset = 0.0, gap_ratio = 0.5, add_noise = 0.0), color = :blue)
 
 current_figure() |> display
-
-for row in 1:4
-end
-
 
 
 
